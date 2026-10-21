@@ -6,9 +6,9 @@ This fork adds [direct machine tag membership](docs/resources/machine_tag.md) an
 
 See [the ownership and reconciliation decision](adr/0001-manage-device-identity-through-resources-with-read-only-refr.md) for lifecycle limits, timeout recovery, and why WireGuard profile contents stay outside state.
 
-## Try the unreleased fork locally
+## Try a development build locally
 
-No registry release is implied by this checkout. Build a local binary:
+Build a local binary:
 
 ```shell
 mkdir -p dist/dev
@@ -28,9 +28,28 @@ provider_installation {
 
 Use `TF_CLI_CONFIG_FILE` to select that file only for the development command. Use `registry.terraform.io` instead for Terraform. Set `ZTL_API_BASE_URL` and `ZTL_API_TOKEN` through your approved credential mechanism, outside HCL and command arguments. The provider base URL includes the API prefix, such as `https://mdm.example.com/api/`.
 
-The [device onboarding example](examples/device-onboarding/main.tf) declares a name and dedicated tag membership. With the development override configured, use `tofu plan` directly; provider installation during `tofu init` still requires a published registry version. Do not change an existing production provider pin to this unreleased source. A signed release and installation/lock-file verification are separate rollout steps.
+The [device onboarding example](examples/device-onboarding/main.tf) declares a name and dedicated tag membership. With the development override configured, use `tofu plan` directly; provider installation during `tofu init` still requires a published registry version. Production configurations must use the actual private registry address and a pinned, verified release rather than this development address.
 
 Import existing tags and associations before adopting them. The example does not upload a VPN profile or attach it to a blueprint. Private profile source remains in the confidential upload workflow; both version and blueprint scopes must independently restrict activation to the intended device.
+
+## Release and private registry publication
+
+Pushing a `v*` version tag runs the existing GoReleaser workflow. It signs SHA-256 checksums with the dedicated release key, publishes the archives to [GitHub Releases](https://github.com/TheOutdoorProgrammer/terraform-provider-zentral/releases), and retains the complete `dist` directory as the `provider-registry-<tag>` workflow artifact for 14 days. The private registry import uses those exact signed files without rebuilding them.
+
+The workflow reads `GPG_PRIVATE_KEY` and `GPG_PRIVATE_KEY_PASSPHRASE` from repository secrets. Preserve the encrypted key and its passphrase in your secret manager before configuring them. Register only the public key with the destination registry. The key fingerprint must match both the detached checksum signature and the registry signing key.
+
+From a trusted host that can reach the private registry, authenticate `spacectl`, download the workflow artifact with `gh run download`, verify its checksum signature against the pinned public key, and import it:
+
+```shell
+spacectl provider create-version --type zentral --protocols 6.0 \
+  --goreleaser-dir /absolute/path/to/downloaded/dist
+spacectl provider list-versions --type zentral
+spacectl provider publish-version --version <verified-draft-version-id>
+```
+
+Only publish after successful verification. The provider source is `<registry-host>/<account>/zentral`; use the address returned by your registry. Test installation for every platform used by operators and runners, commit the resulting dependency lock file, and verify a refresh-only or no-change plan before migrating an existing stack. Provider source migration also requires replacing the old provider address in state under the stack's normal locking procedure. Neither installing the provider nor changing its source automatically adopts device resources.
+
+The registry is deliberately private. GitHub-hosted runners cannot reach a LAN-only registry, so release publication and registry promotion are separate steps. Preserve registry upload errors in restricted logs because they may contain presigned storage URLs.
 
 ## Telemetry
 
