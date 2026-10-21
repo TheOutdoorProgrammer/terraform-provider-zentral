@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
@@ -11,6 +12,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/zentralopensource/goztl"
+	"github.com/zentralopensource/terraform-provider-zentral/internal/telemetry"
 )
 
 // Ensure provider defined types fully satisfy framework interfaces
@@ -112,12 +114,15 @@ func (p *ZentralProvider) Configure(ctx context.Context, req provider.ConfigureR
 	}
 
 	userAgent := fmt.Sprintf("terraform-provider-zentral/%s", p.version)
-	c, err := goztl.NewClient(nil, baseURL, token, goztl.SetUserAgent(userAgent))
+	c, err := goztl.NewClient(&http.Client{
+		Transport: telemetry.Transport{Base: http.DefaultTransport},
+	}, baseURL, token, goztl.SetUserAgent(userAgent))
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to create client",
-			"Unable to create Zentral client:\n\n"+err.Error(),
+			"Unable to create Zentral client. Check the API base URL configuration.",
 		)
+		return
 	}
 
 	resp.DataSourceData = c
@@ -129,12 +134,14 @@ func (p *ZentralProvider) Resources(ctx context.Context) []func() resource.Resou
 		NewGWSGroupTagMappingResource,
 		NewJMESPathCheckResource,
 		NewMetaBusinessUnitResource,
+		NewMachineTagResource,
 		NewMDMACMEIssuerResource,
 		NewMDMArtifactResource,
 		NewMDMBlueprintResource,
 		NewMDMBlueprintArtifactResource,
 		NewMDMCertAssetResource,
 		NewMDMDataAssetResource,
+		NewMDMDeviceNameResource,
 		NewMDMDeclarationResource,
 		NewMDMDEPEnrollmentResource,
 		NewMDMDEPEnrollmentCustomViewResource,

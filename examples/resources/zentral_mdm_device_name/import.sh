@@ -1,0 +1,1 @@
+terraform import zentral_mdm_device_name.device RVhBTVBMRTEyMw/42
