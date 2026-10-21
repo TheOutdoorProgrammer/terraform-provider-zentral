@@ -134,6 +134,9 @@ var routes = []struct {
 }{
 	{regexp.MustCompile(`^inventory/machines/tags/$`), "/api/inventory/machines/tags/"},
 	{regexp.MustCompile(`^inventory/machines/[^/]+/meta/$`), "/api/inventory/machines/{serial_number}/meta/"},
+	{regexp.MustCompile(`^mdm/devices/configuration_target/$`), "/api/mdm/devices/configuration_target/"},
+	{regexp.MustCompile(`^mdm/locations/$`), "/api/mdm/locations/"},
+	{regexp.MustCompile(`^mdm/location_assets/$`), "/api/mdm/location_assets/"},
 	{regexp.MustCompile(`^mdm/devices/[^/]+/send_custom_command/$`), "/api/mdm/devices/{id}/send_custom_command/"},
 	{regexp.MustCompile(`^mdm/devices/commands/[^/]+/$`), "/api/mdm/devices/commands/{id}/"},
 	{regexp.MustCompile(`^mdm/devices/commands/$`), "/api/mdm/devices/commands/"},

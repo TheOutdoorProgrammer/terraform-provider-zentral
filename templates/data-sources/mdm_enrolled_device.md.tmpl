@@ -1,0 +1,26 @@
+---
+page_title: "zentral_mdm_enrolled_device Data Source - terraform-provider-zentral"
+subcategory: ""
+description: |-
+  Find one active enrolled device by its exact serial number.
+---
+
+# zentral_mdm_enrolled_device (Data Source)
+
+Resolves the current enrollment ID by exact full serial number. Historical checked-out
+and blocked enrollments are excluded. Ambiguous active matches cause an error. The
+lookup reads all result pages and never sends device commands.
+
+`allow_missing` stages devices that have not enrolled yet. Missing devices return
+`found = false` and null computed identity fields. Permission failures, inconsistent
+pagination and ambiguity remain errors. Re-enrollment produces a new ID, allowing
+dependent resources to detect a changed enrollment identity.
+
+Serial numbers and names are stored in state. Protect state as personal data.
+The account requires `mdm.view_enrolleddevice`.
+
+## Example Usage
+
+{{ tffile "examples/data-sources/zentral_mdm_enrolled_device/data-source.tf" }}
+
+{{ .SchemaMarkdown | trimspace }}

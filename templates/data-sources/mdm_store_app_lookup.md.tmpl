@@ -1,0 +1,33 @@
+---
+page_title: "zentral_mdm_store_app_lookup Data Source - terraform-provider-zentral"
+subcategory: ""
+description: |-
+  Resolves a licensed app by Apps and Books location name and bundle ID.
+---
+
+# zentral_mdm_store_app_lookup (Data Source)
+
+Use an exact location name and app bundle ID instead of copying Zentral's internal
+location-asset ID. The returned `id` can be used as
+`zentral_mdm_store_app.location_asset_id`.
+
+The location name and bundle ID must each resolve uniquely. The app must support
+device assignment and have at least one non-retired license. Zero available licenses
+is accepted because all licenses may already be assigned. This lookup does not
+reserve a license or guarantee capacity for another installation. Missing Apple
+metadata, books, zero licenses, and multiple matching pricing variants fail explicitly.
+
+The server needs the companion location-asset metadata API extension: read-only
+`name`, `bundle_id`, `product_type`, and `device_assignable` fields plus exact
+`bundle_id` filtering. Deploy that server change before using this data source.
+Existing `zentral_mdm_location_asset` remains available for explicit pricing variants.
+The token requires `mdm.view_location` and `mdm.view_locationasset` permissions.
+
+This data source only reads synchronized metadata. Acquire app licenses in Apple
+Business and synchronize Apps and Books in Zentral before looking up a new app.
+
+## Example Usage
+
+{{ tffile "examples/data-sources/zentral_mdm_store_app_lookup/data-source.tf" }}
+
+{{ .SchemaMarkdown | trimspace }}

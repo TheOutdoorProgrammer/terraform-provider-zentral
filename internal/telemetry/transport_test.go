@@ -163,6 +163,9 @@ func TestUnknownRoutesAndMethodsAreBounded(t *testing.T) {
 
 func TestCommandRoutesUseTemplates(t *testing.T) {
 	for path, want := range map[string]string{
+		"/api/mdm/devices/configuration_target/":                       "/api/mdm/devices/configuration_target/",
+		"/api/mdm/locations/":                                          "/api/mdm/locations/",
+		"/api/mdm/location_assets/":                                    "/api/mdm/location_assets/",
 		"/api/mdm/devices/commands/private-uuid/":                      "/api/mdm/devices/commands/{id}/",
 		"/api/mdm/devices/commands/":                                   "/api/mdm/devices/commands/",
 		"/private-prefix/api/inventory/machines/.private-serial/meta/": "/api/inventory/machines/{serial_number}/meta/",
