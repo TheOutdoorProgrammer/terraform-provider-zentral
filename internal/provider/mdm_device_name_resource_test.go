@@ -42,6 +42,15 @@ type deviceNameTestServer struct {
 	nameAtHistory   string
 }
 
+// Django's USE_TZ=false serializer emits naive UTC, unlike Go's time.Time encoder.
+func deviceCommandResponse(command deviceCommand) map[string]any {
+	var resultTime any
+	if command.ResultTime != nil {
+		resultTime = command.ResultTime.UTC().Format("2006-01-02T15:04:05.999999")
+	}
+	return map[string]any{"uuid": command.UUID, "enrolled_device": command.DeviceID, "status": command.Status, "result": command.Result, "result_time": resultTime}
+}
+
 func newDeviceNameTestServer(t *testing.T) *deviceNameTestServer {
 	t.Helper()
 	f := &deviceNameTestServer{serial: "test / serial 雪", desired: `Kid's <iPad> & "雪"`, deviceID: 42, commands: map[string]deviceCommand{}, itemStatus: "Acknowledged", plistStatus: "Acknowledged", commandStatus: "Acknowledged"}
@@ -67,7 +76,11 @@ func newDeviceNameTestServer(t *testing.T) *deviceNameTestServer {
 			if req.URL.Query().Get("enrolled_device") != "42" || req.URL.Query().Get("name") != "DeviceInformation" {
 				t.Error("native history not scoped to device and command")
 			}
-			_ = json.NewEncoder(w).Encode(map[string]any{"count": len(f.native), "results": f.native})
+			commands := make([]map[string]any, len(f.native))
+			for i, command := range f.native {
+				commands[i] = deviceCommandResponse(command)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"count": len(f.native), "results": commands})
 		case req.Method == "GET" && strings.HasPrefix(req.URL.Path, "/api/mdm/devices/commands/"):
 			id := strings.TrimSuffix(strings.TrimPrefix(req.URL.Path, "/api/mdm/devices/commands/"), "/")
 			command, ok := f.commands[id]
@@ -76,7 +89,7 @@ func newDeviceNameTestServer(t *testing.T) *deviceNameTestServer {
 				_, _ = w.Write([]byte(`{"detail":"private-test-secret"}`))
 				return
 			}
-			_ = json.NewEncoder(w).Encode(command)
+			_ = json.NewEncoder(w).Encode(deviceCommandResponse(command))
 		case req.Method == "POST" && req.URL.Path == "/api/mdm/devices/42/send_custom_command/":
 			var body struct {
 				Command string `json:"command"`
@@ -130,7 +143,7 @@ func newDeviceNameTestServer(t *testing.T) *deviceNameTestServer {
 			if f.wrongSubmission {
 				sent.DeviceID++
 			}
-			_ = json.NewEncoder(w).Encode(sent)
+			_ = json.NewEncoder(w).Encode(deviceCommandResponse(sent))
 		default:
 			t.Errorf("unexpected API request %s %s", req.Method, req.URL.Path)
 			w.WriteHeader(http.StatusNotFound)
@@ -138,6 +151,48 @@ func newDeviceNameTestServer(t *testing.T) *deviceNameTestServer {
 	}))
 	t.Cleanup(f.server.Close)
 	return f
+}
+
+func TestDeviceCommandResultTime(t *testing.T) {
+	for _, tc := range []struct {
+		name, timestamp, want string
+		invalid               bool
+	}{
+		{name: "naive UTC microseconds", timestamp: `"2026-10-21T17:04:52.908618"`, want: "2026-10-21T17:04:52.908618Z"},
+		{name: "naive UTC seconds", timestamp: `"2026-10-21T17:04:52"`, want: "2026-10-21T17:04:52Z"},
+		{name: "UTC zone", timestamp: `"2026-10-21T17:04:52.908618Z"`, want: "2026-10-21T17:04:52.908618Z"},
+		{name: "positive offset", timestamp: `"2026-10-21T19:04:52.908618+02:00"`, want: "2026-10-21T17:04:52.908618Z"},
+		{name: "negative offset", timestamp: `"2026-10-21T13:04:52.908618-04:00"`, want: "2026-10-21T17:04:52.908618Z"},
+		{name: "pending", timestamp: `null`},
+		{name: "malformed", timestamp: `"private-invalid-timestamp"`, invalid: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var command deviceCommand
+			err := json.Unmarshal([]byte(`{"uuid":"12345678-1234-4234-8234-000000000001","enrolled_device":42,"status":"Acknowledged","result":null,"result_time":`+tc.timestamp+`}`), &command)
+			if tc.invalid {
+				if err == nil || strings.Contains(err.Error(), "private-invalid-timestamp") {
+					t.Fatalf("invalid timestamp must fail without echoing its value: %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if command.UUID != "12345678-1234-4234-8234-000000000001" || command.DeviceID != 42 || command.Status != "Acknowledged" {
+				t.Fatal("timestamp decoding changed the other command fields")
+			}
+			if tc.want == "" {
+				if command.ResultTime != nil {
+					t.Fatal("pending command acquired a result timestamp")
+				}
+				return
+			}
+			want, err := time.Parse(time.RFC3339Nano, tc.want)
+			if err != nil || command.ResultTime == nil || !command.ResultTime.Equal(want) {
+				t.Fatalf("wrong timestamp: got %v, want %v", command.ResultTime, want)
+			}
+		})
+	}
 }
 
 func (f *deviceNameTestServer) resource(t *testing.T) *MDMDeviceNameResource {
@@ -218,6 +273,63 @@ func TestMDMDeviceNameCanceledCommandRecovery(t *testing.T) {
 				t.Fatal("canceled rename did not recover with a verified new command")
 			}
 		})
+	}
+}
+
+func TestMDMDeviceNameNativeHistoryTimestampOrdering(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		delta time.Duration
+		drift bool
+	}{
+		{name: "older", delta: -time.Microsecond},
+		{name: "same observation", drift: true},
+		{name: "newer", delta: time.Microsecond, drift: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newDeviceNameTestServer(t)
+			r := f.resource(t)
+			data := f.model()
+			if err := r.reconcile(context.Background(), &data, func() {}); err != nil {
+				t.Fatal(err)
+			}
+			verifiedAt := time.Date(2026, 10, 21, 17, 4, 52, 908618000, time.UTC)
+			verified := f.commands[data.VerificationID.ValueString()]
+			verified.ResultTime = &verifiedAt
+			f.commands[verified.UUID] = verified
+			nativeAt := verifiedAt.Add(tc.delta)
+			f.native = []deviceCommand{{UUID: "native", DeviceID: 42, Status: "Acknowledged", ResultTime: &nativeAt}}
+			f.devices[0].Name = "Native inventory name"
+			name, err := r.observedName(context.Background(), &data, &f.devices[0])
+			want := f.desired
+			if tc.drift {
+				want = f.devices[0].Name
+			}
+			if err != nil || name != want || len(f.posts) != 2 {
+				t.Fatalf("wrong read-only history result: name=%q err=%v", name, err)
+			}
+		})
+	}
+}
+
+func TestMDMDeviceNameResumeAcknowledgedNaiveTimestamp(t *testing.T) {
+	f := newDeviceNameTestServer(t)
+	r := f.resource(t)
+	data := f.model()
+	commandID := "12345678-1234-4234-8234-000000000099"
+	result, err := plist.Marshal(map[string]any{"Status": "Acknowledged", "Settings": []map[string]string{{"Item": "DeviceName", "Status": "Acknowledged"}}}, plist.BinaryFormat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	acknowledgedAt := time.Date(2026, 10, 21, 17, 4, 52, 908618000, time.UTC)
+	f.commands[commandID] = deviceCommand{UUID: commandID, DeviceID: 42, Status: "Acknowledged", Result: result, ResultTime: &acknowledgedAt}
+	data.CommandID = types.StringValue(commandID)
+	data.CommandName = data.Name
+	if err := r.reconcile(context.Background(), &data, func() {}); err != nil {
+		t.Fatal(err)
+	}
+	if data.CommandID.ValueString() != commandID || len(f.posts) != 1 || f.posts[0]["RequestType"] != "DeviceInformation" {
+		t.Fatal("resuming an acknowledged command replayed the device rename")
 	}
 }
 

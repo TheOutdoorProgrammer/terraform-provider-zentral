@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -64,6 +65,32 @@ type deviceCommand struct {
 	Status     string     `json:"status"`
 	Result     []byte     `json:"result"`
 	ResultTime *time.Time `json:"result_time"`
+}
+
+func (c *deviceCommand) UnmarshalJSON(data []byte) error {
+	type command deviceCommand
+	var decoded struct {
+		command
+		ResultTime json.RawMessage `json:"result_time"`
+	}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	if len(decoded.ResultTime) != 0 && string(decoded.ResultTime) != "null" {
+		var timestamp time.Time
+		if err := json.Unmarshal(decoded.ResultTime, &timestamp); err != nil {
+			// Zentral uses naive UTC with USE_TZ=false; the SDK also supports
+			// that representation, while time.Time handles timezone-aware APIs.
+			var sdkTimestamp goztl.Timestamp
+			if err := json.Unmarshal(decoded.ResultTime, &sdkTimestamp); err != nil {
+				return errors.New("invalid command result timestamp")
+			}
+			timestamp = sdkTimestamp.Time.UTC()
+		}
+		decoded.command.ResultTime = &timestamp
+	}
+	*c = deviceCommand(decoded.command)
+	return nil
 }
 
 type deviceCommandResult struct {
