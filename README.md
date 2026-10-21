@@ -38,7 +38,7 @@ Pushing a `v*` version tag runs the existing GoReleaser workflow. It signs SHA-2
 
 The workflow reads `GPG_PRIVATE_KEY` and `GPG_PRIVATE_KEY_PASSPHRASE` from repository secrets. Preserve the encrypted key and its passphrase in your secret manager before configuring them. Register only the public key with the destination registry. The key fingerprint must match both the detached checksum signature and the registry signing key.
 
-The [release public key](release-signing-key.asc) has fingerprint `0DC7B0E7F52E7B980C77A22E3037EE62A296FE95` and expires on October 21, 2028. Verify the fingerprint against a trusted checkout before importing it for checksum verification. Key rotation requires updating both registry trust and this public key before publishing with its replacement.
+The [release public key](release-signing-key.asc) has fingerprint `0DC7B0E7F52E7B980C77A22E3037EE62A296FE95` and expires on October 20, 2028. Verify the fingerprint against a trusted checkout before importing it for checksum verification. Key rotation requires updating both registry trust and this public key before publishing with its replacement.
 
 From a trusted host that can reach the private registry, authenticate `spacectl`, download the workflow artifact with `gh run download`, verify its checksum signature against the pinned public key, and import it:
 
