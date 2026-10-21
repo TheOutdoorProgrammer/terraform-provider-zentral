@@ -41,3 +41,12 @@ jobs:
           # GitHub sets the GITHUB_TOKEN secret automatically.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}
+      # The private registry is LAN-only; import these exact signed artifacts from
+      # a trusted operator host instead of rebuilding a second release locally.
+      - name: Preserve registry publication artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: provider-registry-${{ github.ref_name }}
+          path: dist/
+          retention-days: 14
+          if-no-files-found: error
