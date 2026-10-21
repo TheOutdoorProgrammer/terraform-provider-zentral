@@ -55,7 +55,9 @@ The registry is deliberately private. GitHub-hosted runners cannot reach a LAN-o
 
 ## Telemetry
 
-Tracing is disabled unless an operator explicitly configures `OTEL_EXPORTER_OTLP_ENDPOINT` or `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`. The exporter uses OTLP HTTP/protobuf and the standard OTLP environment configuration. Supply ingestion headers through protected runtime environment settings, never HCL, command arguments, or committed files.
+Telemetry is disabled unless an operator explicitly configures an OTLP endpoint. `OTEL_EXPORTER_OTLP_ENDPOINT` enables both traces and correlated request logs using OTLP HTTP/protobuf; the signal-specific `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` and `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` settings enable their respective signals. Supply ingestion headers through protected runtime environment settings, never HCL, command arguments, or committed files. Request logs do not require `TF_LOG`.
+
+Log export uses system TLS trust and proxy settings with a five-second request timeout. OTLP certificate-file and mutual-TLS environment options are not supported by the log transport. Configure a trusted collector endpoint with system trust or an appropriate private network transport.
 
 Requests propagate W3C TraceContext and Baggage. Exported spans contain only fixed service attributes, HTTP methods, allowlisted route templates, status codes and bounded error categories. Provider request logs include trace/span IDs. Bodies, tokens, headers, query strings, device names and serials are not exported. Local collector tests cover this boundary; production exporter verification is required before rollout.
 
