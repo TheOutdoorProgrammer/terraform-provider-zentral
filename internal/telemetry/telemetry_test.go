@@ -19,16 +19,18 @@ import (
 
 func cleanEnvironment(t *testing.T) {
 	t.Helper()
-	for _, key := range []string{"OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "OTEL_EXPORTER_OTLP_HEADERS", "OTEL_EXPORTER_OTLP_TRACES_HEADERS", "OTEL_RESOURCE_ATTRIBUTES"} {
+	for _, key := range []string{"OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "OTEL_EXPORTER_OTLP_HEADERS", "OTEL_EXPORTER_OTLP_TRACES_HEADERS", "OTEL_EXPORTER_OTLP_LOGS_HEADERS", "OTEL_RESOURCE_ATTRIBUTES"} {
 		t.Setenv(key, "")
 	}
 	previous := otel.GetTracerProvider()
 	previousPropagation := otel.GetTextMapPropagator()
 	previousErrorHandler := otel.GetErrorHandler()
+	previousLogger := requestLogger.Swap(nil)
 	t.Cleanup(func() {
 		otel.SetTracerProvider(previous)
 		otel.SetTextMapPropagator(previousPropagation)
 		otel.SetErrorHandler(previousErrorHandler)
+		requestLogger.Store(previousLogger)
 	})
 }
 

@@ -75,6 +75,7 @@ func finish(ctx context.Context, span trace.Span, fields map[string]any) {
 	} else {
 		tflog.Debug(ctx, "Zentral API request completed", fields)
 	}
+	emitRequestLog(ctx, fields)
 	span.End()
 }
 

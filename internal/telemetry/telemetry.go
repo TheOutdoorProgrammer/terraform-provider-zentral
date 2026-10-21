@@ -1,4 +1,4 @@
-// Package telemetry provides opt-in tracing without recording configuration or device data.
+// Package telemetry provides opt-in telemetry without recording configuration or device data.
 package telemetry
 
 import (
@@ -19,12 +19,15 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
-// Initialize enables OTLP HTTP/protobuf tracing only when an endpoint is explicitly
+// Initialize enables OTLP HTTP/protobuf telemetry only when an endpoint is explicitly
 // configured. Call once at process startup and shut down before exiting the plugin.
 func Initialize(ctx context.Context, version string) (func(context.Context) error, error) {
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}, propagation.Baggage{}))
 	noop := func(context.Context) error { return nil }
-	if strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")) == "" && strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")) == "" {
+	baseConfigured := strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")) != ""
+	traceConfigured := baseConfigured || strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")) != ""
+	logConfigured := baseConfigured || strings.TrimSpace(os.Getenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT")) != ""
+	if !traceConfigured && !logConfigured {
 		return noop, nil
 	}
 
@@ -32,7 +35,7 @@ func Initialize(ctx context.Context, version string) (func(context.Context) erro
 	// bodies. Replace their diagnostic sinks before the SDK parses environment values.
 	otel.SetLogger(logr.New(safeSDKLog{}))
 	otel.SetErrorHandler(otel.ErrorHandlerFunc(func(error) { reportSDKFailure() }))
-	for _, key := range []string{"OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"} {
+	for _, key := range []string{"OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"} {
 		if value := os.Getenv(key); value != "" {
 			u, err := url.Parse(value)
 			if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
@@ -40,22 +43,36 @@ func Initialize(ctx context.Context, version string) (func(context.Context) erro
 			}
 		}
 	}
-	exporter, err := otlptracehttp.New(ctx, otlptracehttp.WithTimeout(5*time.Second))
-	if err != nil {
-		return noop, errors.New("could not initialize OpenTelemetry exporter")
-	}
 	stableResource := resource.NewSchemaless(
 		attribute.String("service.name", "terraform-provider-zentral"),
 		attribute.String("service.version", version),
 	)
-	provider := sdktrace.NewTracerProvider(
-		sdktrace.WithBatcher(resourceExporter{SpanExporter: exporter, resource: stableResource}),
-		sdktrace.WithSampler(sdktrace.ParentBased(sdktrace.AlwaysSample())),
-		sdktrace.WithResource(stableResource),
-	)
-	otel.SetTracerProvider(provider)
+	shutdownTraces, shutdownLogs := noop, noop
+	if traceConfigured {
+		exporter, err := otlptracehttp.New(ctx, otlptracehttp.WithTimeout(5*time.Second))
+		if err != nil {
+			return noop, errors.New("could not initialize OpenTelemetry exporter")
+		}
+		provider := sdktrace.NewTracerProvider(
+			sdktrace.WithBatcher(resourceExporter{SpanExporter: exporter, resource: stableResource}),
+			sdktrace.WithSampler(sdktrace.ParentBased(sdktrace.AlwaysSample())),
+			sdktrace.WithResource(stableResource),
+		)
+		otel.SetTracerProvider(provider)
+		shutdownTraces = provider.Shutdown
+	}
+	if logConfigured {
+		var err error
+		shutdownLogs, err = initializeLogs(ctx, version, stableResource)
+		if err != nil {
+			_ = shutdownTraces(ctx)
+			return noop, errors.New("could not initialize OpenTelemetry log exporter")
+		}
+	}
 	return func(ctx context.Context) error {
-		if err := provider.Shutdown(ctx); err != nil {
+		logErr := shutdownLogs(ctx)
+		traceErr := shutdownTraces(ctx)
+		if logErr != nil || traceErr != nil {
 			return errors.New("OpenTelemetry shutdown failed")
 		}
 		return nil
